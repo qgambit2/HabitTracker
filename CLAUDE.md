@@ -72,6 +72,19 @@ Phone must be on the same Wi-Fi (this Mac is typically `192.168.1.x`; connect vi
 macOS firewall permitting `node` and stealth-mode-off have already been verified once. For locked-down or
 client-isolated Wi-Fi, fall back to `npx expo start --tunnel`.
 
+## Shell / git gotchas (avoid repeat tooling errors)
+
+- **Commit messages:** do **not** use `git commit -m "$(cat <<EOF … EOF)"`. An apostrophe inside the heredoc
+  (e.g. "can't") breaks the parse → `unexpected EOF while looking for matching '`. Use **multiple `-m` flags**
+  instead, one per paragraph: `git commit -m "subject" -m "body" -m "Co-Authored-By: …"`.
+- **`grep -c` / `grep -q` exit 1 is not an error** — grep exits non-zero on zero matches. When counting for
+  info, append `|| true` (or `|| echo 0`) so a legitimate zero-count doesn't read as a failure or abort a chain.
+- Prefer simple, single-purpose shell calls over multi-line command substitutions; for anything with embedded
+  quotes/newlines, use `-m` repetition or write to a file first.
+- **Pushing to github.com is blocked here by an Intuit egress guard** (a `PreToolUse` hook), so an automated
+  `git push` to github.com will be denied — that is policy, not a bug. Commit locally, then the **human runs
+  `git push origin main`**. Pushes to `*.intuit.com` hosts are the allowlisted path.
+
 ## Architecture
 
 **Routing — Expo Router (file-based), under `app/`:**
