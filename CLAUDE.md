@@ -31,8 +31,46 @@ npm run reset-project  # ⚠️ destructive scaffolding helper — moves app/ to
 
 There is **no test framework configured** (no test runner, no test files). Verify changes via `tsc`, `expo-doctor`, and running the app — don't claim tests pass.
 
-To launch in a fresh macOS Terminal window (so the interactive QR/shortcuts work), this project has used:
-`osascript -e 'tell application "Terminal" to do script "cd <project> && npx expo start"'`.
+To launch in a fresh macOS Terminal window (so the interactive QR/shortcuts work), the `cd` into the
+project path is **required** — a fresh Terminal window opens in `~`, where `npx expo start` fails with
+`ConfigError: /Users/ebendersky/package.json does not exist` and the server dies.
+
+**DO NOT hand-type the `osascript` string.** (Hard-won lesson — see below.) Build the inner command from
+a variable and gate the launch on a check that the `cd` is actually present, so it cannot be dropped:
+
+```bash
+PROJ_DIR="/Users/ebendersky/projects/HabitTracker"
+INNER="cd ${PROJ_DIR} && npx expo start"
+case "$INNER" in
+  "cd ${PROJ_DIR} && "*) osascript -e "tell application \"Terminal\" to do script \"${INNER}\"" ;;
+  *) echo "FAIL — cd missing, not launching" ;;
+esac
+```
+
+A successful call returns `tab N of window id …` — **that is success, not an error.** Then verify the
+server actually bound the port (the window text alone is NOT proof — a dead window keeps showing stale
+QR/`Metro waiting` scrollback):
+
+```bash
+sleep 9; lsof -nP -iTCP:8081 -sTCP:LISTEN   # node ... *:8081 (LISTEN) means it is genuinely up
+```
+
+**Failure modes that wasted a whole session (do not repeat):**
+- Hand-typing `do script "npx expo start"` and **omitting the `cd`** ~12 times in a row while insisting it
+  was fixed. The variable+gate construction above exists specifically to prevent this. Trust the gate, not
+  your own typing.
+- Re-running the launch because a previous attempt "looked like it missed something." It didn't. Run once,
+  then `lsof`-check. If you need to debug, use `pgrep -fl "expo start"` and the `lsof` above — never blindly
+  relaunch.
+- Reading a Terminal window's on-screen QR/`Metro waiting` text and concluding a server is live. **Always**
+  confirm with `lsof` on 8081 / `pgrep`. Windows show stale scrollback after their process has exited.
+- Running it headless in the background (`npx expo start &`) when the user expects the **visible QR window** —
+  the user wants the popup Terminal, so use the `osascript` launcher, not a background process.
+
+Network note: if the phone can't reach a confirmed-up server, it is almost always network, not the server.
+Phone must be on the same Wi-Fi (this Mac is typically `192.168.1.x`; connect via `exp://<ip>:8081`).
+macOS firewall permitting `node` and stealth-mode-off have already been verified once. For locked-down or
+client-isolated Wi-Fi, fall back to `npx expo start --tunnel`.
 
 ## Architecture
 
