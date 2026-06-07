@@ -1,112 +1,120 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+import { ConsistencyChart } from '@/components/consistency-chart';
+import { useThemeColor } from '@/hooks/use-theme-color';
+import { completedDates, lastNDays, useHabits } from '@/hooks/use-habits';
 
-export default function TabTwoScreen() {
+const S = { half: 2, one: 4, two: 8, three: 16, four: 24 };
+const WEEKDAY = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+export default function ProgressScreen() {
+  const habits = useHabits();
+  const insets = useSafeAreaInsets();
+  const [window, setWindow] = useState<7 | 30>(7);
+  const days = lastNDays(7);
+
+  const text = useThemeColor({}, 'text');
+  const background = useThemeColor({}, 'background');
+  const muted = useThemeColor({ light: '#60646C', dark: '#B0B4BA' }, 'icon');
+  const card = useThemeColor({ light: '#F0F0F3', dark: '#212225' }, 'background');
+  const cardActive = useThemeColor({ light: '#E0E1E6', dark: '#2E3135' }, 'background');
+  const tint = useThemeColor({}, 'tint');
+  const empty = useThemeColor({ light: '#E0E1E6', dark: '#2E3135' }, 'background');
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
+    <ScrollView
+      style={[styles.scroll, { backgroundColor: background }]}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + S.four, paddingBottom: insets.bottom + S.four },
+      ]}>
+      <ThemedView style={styles.container}>
+        <ThemedView style={styles.header}>
+          <ThemedText type="title">Progress</ThemedText>
+          <ThemedText style={{ color: muted }}>Your consistency over time</ThemedText>
+        </ThemedView>
+
+        <ThemedView style={[styles.chartCard, { backgroundColor: card }]}>
+          <ThemedView style={styles.windowRow}>
+            {([7, 30] as const).map((w) => (
+              <Pressable
+                key={w}
+                onPress={() => setWindow(w)}
+                style={({ pressed }) => [
+                  styles.windowChip,
+                  { backgroundColor: window === w ? tint : cardActive },
+                  pressed && styles.pressed,
+                ]}>
+                <ThemedText
+                  type="defaultSemiBold"
+                  style={{ color: window === w ? background : text }}>
+                  {w} days
+                </ThemedText>
+              </Pressable>
+            ))}
+          </ThemedView>
+          <ConsistencyChart habits={habits} days={window} />
+        </ThemedView>
+
+        <ThemedView style={[styles.legendRow, { backgroundColor: card }]}>
+          <ThemedText style={styles.legendLabel}> </ThemedText>
+          {days.map((iso) => {
+            const weekday = WEEKDAY[new Date(`${iso}T00:00:00`).getDay()];
+            return (
+              <ThemedText key={iso} type="defaultSemiBold" style={styles.legendDay}>
+                {weekday}
+              </ThemedText>
+            );
+          })}
+        </ThemedView>
+
+        <ThemedView style={styles.grid}>
+          {habits.map((habit) => {
+            const doneSet = new Set(completedDates(habit));
+            return (
+              <ThemedView key={habit.id} style={[styles.gridRow, { backgroundColor: card }]}>
+                <ThemedText style={styles.legendLabel}>{habit.emoji}</ThemedText>
+                {days.map((iso) => (
+                  <View key={iso} style={styles.cellWrap}>
+                    <View
+                      style={[styles.cell, { backgroundColor: doneSet.has(iso) ? text : empty }]}
+                    />
+                  </View>
+                ))}
+              </ThemedView>
+            );
+          })}
+        </ThemedView>
+
+        {habits.length === 0 && (
+          <ThemedText style={[styles.empty, { color: muted }]}>
+            No habits yet — add some on the Today tab.
+          </ThemedText>
+        )}
       </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
+  scroll: { flex: 1 },
+  content: { flexDirection: 'row', justifyContent: 'center', paddingHorizontal: S.four },
+  container: { flexGrow: 1, maxWidth: 800, gap: S.four, backgroundColor: 'transparent' },
+  header: { gap: S.one, backgroundColor: 'transparent' },
+  pressed: { opacity: 0.7 },
+  chartCard: { gap: S.three, padding: S.three, borderRadius: S.three },
+  windowRow: { flexDirection: 'row', gap: S.two, backgroundColor: 'transparent' },
+  windowChip: { paddingHorizontal: S.three, paddingVertical: S.one, borderRadius: S.three },
+  legendRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: S.three, paddingVertical: S.two, borderRadius: S.three },
+  legendLabel: { width: 32 },
+  legendDay: { flex: 1, textAlign: 'center' },
+  grid: { gap: S.two, backgroundColor: 'transparent' },
+  gridRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: S.three, paddingVertical: S.two, borderRadius: S.three },
+  cellWrap: { flex: 1, alignItems: 'center' },
+  cell: { width: 22, height: 22, borderRadius: 6 },
+  empty: { textAlign: 'center' },
 });

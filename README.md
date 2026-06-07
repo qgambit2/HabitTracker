@@ -1,50 +1,66 @@
-# Welcome to your Expo app 👋
+# HabitTracker
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A small habit-tracker built with [Expo](https://expo.dev) (React Native), running on iOS, Android, and web from one codebase. Track daily habits — either simple check-offs or counted targets — keep streaks alive, run time-boxed challenges, and get a little multi-sensory reward (haptic + chime + visual burst) every time you complete one.
 
-## Get started
+## Features
 
-1. Install dependencies
+- **Two habit kinds** — *check* (once a day) or *count* (hit a per-day target, e.g. 8 glasses of water).
+- **Streaks & history** — current consecutive-day streaks, a 7/30-day consistency chart, and a newest-first completion timeline.
+- **Challenges** — time-boxed goals (e.g. a 7-day streak) that advance as you complete habits and celebrate on completion.
+- **Daily reminders** — per-habit local notifications.
+- **Reward feedback** — success haptic, a generated chime, and an on-screen burst on each completion.
+- **Light/dark theming** and **persistence** across reloads (AsyncStorage), with a schema-migration path.
 
-   ```bash
-   npm install
-   ```
+## Requirements
 
-2. Start the app
+This project is **pinned to Expo SDK 54** on purpose — the owner tests on-device via the App Store build of Expo Go, which only supports SDK 54. Don't bump `expo` / `expo-*` / `react-native` / `react` without switching the device-testing story to a [development build](https://docs.expo.dev/develop/development-builds/introduction/). See [`CLAUDE.md`](./CLAUDE.md) for the full rationale.
 
-   ```bash
-   npx expo start
-   ```
+- Node.js (LTS)
+- [Expo Go](https://expo.dev/go) on a device (SDK 54), or an iOS Simulator / Android Emulator
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Getting started
 
 ```bash
-npm run reset-project
+npm install      # install dependencies
+npx expo start   # start Metro; scan the QR with Expo Go, or press i / a / w
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Or jump straight to a platform:
 
-## Learn more
+```bash
+npm run ios       # iOS simulator
+npm run android   # Android emulator
+npm run web       # web build
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+## Project layout
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```
+app/                 # Expo Router file-based routes
+  (tabs)/
+    index.tsx        # Today  — habit list, add-habit, challenge banner, reward
+    explore.tsx      # Progress — consistency chart + completion grid
+    history.tsx      # History — completed-day timeline
+  onboarding.tsx     # first-launch welcome + starter challenge
+  settings.tsx       # sound toggle, per-habit reminders
+  modal.tsx          # celebration modal
+hooks/
+  use-habits.ts      # the core store: habits, challenges, settings + persistence
+  use-reward.ts      # haptic + chime payoff
+  use-notifications.ts
+constants/theme.ts   # color palette
+components/          # ThemedText/ThemedView + UI pieces
+```
 
-## Join the community
+State lives in `hooks/use-habits.ts`: module-level stores exposed via `useSyncExternalStore` (no provider), persisted to AsyncStorage. See [`CLAUDE.md`](./CLAUDE.md) for the architecture in depth.
 
-Join our community of developers creating universal apps.
+## Scripts
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+| Command | What it does |
+| --- | --- |
+| `npm run lint` | ESLint (`eslint-config-expo`) |
+| `npx tsc --noEmit` | TypeScript type-check (strict) |
+| `npx expo-doctor` | Validate dependencies against the SDK |
+| `node scripts/generate-chime.js` | Regenerate the committed reward chime asset |
+
+> There is **no test framework** configured — verify changes with `tsc`, `expo-doctor`, and by running the app.
