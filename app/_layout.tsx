@@ -1,10 +1,12 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Platform } from 'react-native';
+import { useEffect } from 'react';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { setAudioModeAsync } from 'expo-audio';
 import 'react-native-reanimated';
 
+import { useAuth } from '@/hooks/use-auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { registerNotificationHandler } from '@/hooks/use-notifications';
 
@@ -20,13 +22,49 @@ if (Platform.OS !== 'web') {
 }
 registerNotificationHandler();
 
+/**
+ * Redirects between the auth screen and the app based on session state. While the
+ * initial session is loading we render nothing routable yet (a splash), so the login
+ * screen never flashes for an already-signed-in user.
+ */
+function useAuthGate() {
+  const { session, loading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+    const onAuthScreen = segments[0] === 'auth';
+    if (!session && !onAuthScreen) {
+      router.replace('/auth');
+    } else if (session && onAuthScreen) {
+      router.replace('/');
+    }
+  }, [session, loading, segments, router]);
+
+  return loading;
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const loading = useAuthGate();
+
+  if (loading) {
+    return (
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator />
+        </View>
+        <StatusBar style="auto" />
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="auth" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Celebration' }} />
         <Stack.Screen
           name="onboarding"
