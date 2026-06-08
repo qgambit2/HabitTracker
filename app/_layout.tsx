@@ -1,7 +1,6 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { setAudioModeAsync } from 'expo-audio';
 import 'react-native-reanimated';
@@ -22,35 +21,13 @@ if (Platform.OS !== 'web') {
 }
 registerNotificationHandler();
 
-/**
- * Redirects between the auth screen and the app based on session state. While the
- * initial session is loading we render nothing routable yet (a splash), so the login
- * screen never flashes for an already-signed-in user.
- */
-function useAuthGate() {
-  const { session, loading } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (loading) return;
-    // Screens an unauthenticated user is allowed to be on.
-    const publicScreens = ['auth', 'forgot-password'];
-    const onPublicScreen = publicScreens.includes(segments[0] as string);
-    if (!session && !onPublicScreen) {
-      router.replace('/auth');
-    } else if (session && onPublicScreen) {
-      router.replace('/');
-    }
-  }, [session, loading, segments, router]);
-
-  return loading;
-}
-
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const loading = useAuthGate();
+  const { session, loading } = useAuth();
 
+  // While the initial session resolves, show a splash and don't mount the
+  // navigator yet — this avoids flashing the login screen for an already
+  // signed-in user.
   if (loading) {
     return (
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
@@ -62,18 +39,23 @@ export default function RootLayout() {
     );
   }
 
+  // Declarative route guarding (Stack.Protected). Expo Router redirects to the
+  // first allowed screen when the guard fails — no imperative router.replace in
+  // an effect, which is what throws "navigate before mounting the Root Layout".
+  const isSignedIn = !!session;
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="auth" options={{ headerShown: false }} />
-        <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Celebration' }} />
-        <Stack.Screen
-          name="onboarding"
-          options={{ presentation: 'modal', title: 'Welcome' }}
-        />
-        <Stack.Screen name="settings" options={{ presentation: 'modal', title: 'Settings' }} />
+        <Stack.Protected guard={isSignedIn}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Celebration' }} />
+          <Stack.Screen name="onboarding" options={{ presentation: 'modal', title: 'Welcome' }} />
+          <Stack.Screen name="settings" options={{ presentation: 'modal', title: 'Settings' }} />
+        </Stack.Protected>
+        <Stack.Protected guard={!isSignedIn}>
+          <Stack.Screen name="auth" options={{ headerShown: false }} />
+          <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
+        </Stack.Protected>
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>
