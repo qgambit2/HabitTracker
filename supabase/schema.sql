@@ -89,3 +89,25 @@ end; $$;
 create trigger habits_touch     before update on public.habits     for each row execute function public.touch_updated_at();
 create trigger challenges_touch before update on public.challenges for each row execute function public.touch_updated_at();
 create trigger settings_touch   before update on public.settings   for each row execute function public.touch_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- insights — cached AI coaching artifacts (see supabase/insights.sql)
+-- Written by the `coach` edge function, read by the Coach tab. Append-only;
+-- no updated_at trigger (rows are immutable once generated).
+-- ---------------------------------------------------------------------------
+create table if not exists public.insights (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users (id) on delete cascade default auth.uid(),
+  type       text not null check (type in ('nudge', 'weekly', 'monthly')),
+  content    text not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.insights enable row level security;
+
+create policy "insights: select own" on public.insights for select using ( (select auth.uid()) = user_id );
+create policy "insights: insert own" on public.insights for insert with check ( (select auth.uid()) = user_id );
+create policy "insights: delete own" on public.insights for delete using ( (select auth.uid()) = user_id );
+
+create index if not exists insights_user_type_created
+  on public.insights (user_id, type, created_at desc);

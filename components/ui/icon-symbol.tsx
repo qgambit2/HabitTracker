@@ -24,6 +24,7 @@ const MAPPING = {
   'eye': 'visibility',
   'eye.slash': 'visibility-off',
   'rectangle.portrait.and.arrow.right': 'logout',
+  'sparkles': 'auto-awesome',
 } as IconMapping;
 
 /**
