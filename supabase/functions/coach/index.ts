@@ -27,16 +27,46 @@ const THROTTLE_MS: Record<InsightType, number> = {
   monthly: 27 * 24 * 60 * 60 * 1000, // ~monthly
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
+// Hard per-user abuse cap on *paid* generations within a rolling window. Generous enough
+// that normal use (a nudge + the odd reflection/manual refresh) never trips it, but it
+// bounds what a single account can spend on the Anthropic key even if it deletes its
+// cached insights to defeat the freshness throttle.
+const RATE_LIMIT = 25;
+const RATE_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h
 
-function json(body: unknown, status = 200): Response {
+// CORS allowlist. Native apps (iOS/Android) send no Origin header and aren't subject to
+// CORS at all, so this only governs browser callers (the web build / local dev). Configure
+// extra web origins via the COACH_ALLOWED_ORIGINS secret (comma-separated). We reflect a
+// matching Origin rather than sending `*`, so a random site can't script this endpoint.
+const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:8081', 'http://localhost:19006'];
+
+function allowedOrigins(): string[] {
+  const extra = (Deno.env.get('COACH_ALLOWED_ORIGINS') ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  return [...DEFAULT_ALLOWED_ORIGINS, ...extra];
+}
+
+function corsHeadersFor(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin');
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
+  };
+  // Only echo the Origin back if it's on the allowlist. No Origin header => native caller,
+  // which doesn't need (or read) these headers.
+  if (origin && allowedOrigins().includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+  }
+  return headers;
+}
+
+function json(body: unknown, status: number, cors: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...cors, 'Content-Type': 'application/json' },
   });
 }
 
@@ -219,11 +249,12 @@ async function callClaude(type: InsightType, features: unknown, apiKey: string):
 // ---- handler --------------------------------------------------------------
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  const cors = corsHeadersFor(req);
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405, cors);
 
   const authHeader = req.headers.get('Authorization');
-  if (!authHeader) return json({ error: 'Missing Authorization header' }, 401);
+  if (!authHeader) return json({ error: 'Missing Authorization header' }, 401, cors);
 
   let type: InsightType = 'nudge';
   try {
@@ -244,7 +275,7 @@ Deno.serve(async (req: Request) => {
 
   // Identify the user (also rejects an invalid/expired token).
   const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData?.user) return json({ error: 'Invalid session' }, 401);
+  if (userErr || !userData?.user) return json({ error: 'Invalid session' }, 401, cors);
 
   // Throttle: reuse a recent insight of this type if one exists.
   const { data: recent } = await supabase
@@ -258,7 +289,7 @@ Deno.serve(async (req: Request) => {
   if (recent) {
     const age = Date.now() - new Date(recent.created_at).getTime();
     if (age < THROTTLE_MS[type]) {
-      return json({ insight: recent, cached: true });
+      return json({ insight: recent, cached: true }, 200, cors);
     }
   }
 
@@ -271,11 +302,17 @@ Deno.serve(async (req: Request) => {
   ]);
 
   if (habitsRes.error || challengesRes.error) {
-    return json({ error: 'Could not read habit data' }, 500);
+    return json({ error: 'Could not read habit data' }, 500, cors);
   }
 
-  const habits = (habitsRes.data as HabitRow[]) ?? [];
-  const challenges = (challengesRes.data as ChallengeRow[]) ?? [];
+  // Bound the data we serialize into the prompt. Row-level CHECK constraints cap each
+  // field's size, but nothing caps the *number* of rows — and buildFeatures serializes
+  // them all into the (paid) Claude call. The rate limiter bounds calls/day; this bounds
+  // the input tokens per call. A coach summary doesn't need more than this many anyway.
+  const MAX_HABITS = 100;
+  const MAX_CHALLENGES = 100;
+  const habits = ((habitsRes.data as HabitRow[]) ?? []).slice(0, MAX_HABITS);
+  const challenges = ((challengesRes.data as ChallengeRow[]) ?? []).slice(0, MAX_CHALLENGES);
 
   // No habits yet — return a friendly starter message without calling Claude.
   if (habits.length === 0) {
@@ -288,12 +325,34 @@ Deno.serve(async (req: Request) => {
       .insert({ user_id: userData.user.id, type, content })
       .select('id, type, content, created_at')
       .single();
-    if (insErr) return json({ error: 'Could not save insight' }, 500);
-    return json({ insight: inserted, cached: false });
+    if (insErr) return json({ error: 'Could not save insight' }, 500, cors);
+    return json({ insight: inserted, cached: false }, 200, cors);
   }
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!apiKey) return json({ error: 'Coaching is not configured' }, 500);
+  if (!apiKey) return json({ error: 'Coaching is not configured' }, 500, cors);
+
+  // Hard rate limit (abuse control, distinct from the freshness throttle above). The
+  // throttle reads `insights`, which the user can delete via RLS — so it can't bound cost
+  // on its own. `coach_calls` is append-only (no delete policy), giving a tamper-resistant
+  // per-user count of paid generations.
+  //
+  // `reserve_coach_call` folds the count-check and the insert into ONE atomic statement,
+  // so a burst of concurrent requests can't all read "under the cap" before any of them
+  // inserts and overshoot it. It reserves the slot *before* we call Claude and only counts
+  // calls that reach this point (the no-habits short-circuit and cached returns above
+  // don't consume the budget). Returns false once the user is at/over the cap.
+  const { data: reserved, error: rateErr } = await supabase.rpc('reserve_coach_call', {
+    p_limit: RATE_LIMIT,
+    p_window_ms: RATE_WINDOW_MS,
+  });
+  if (rateErr) {
+    console.error('Rate-limit reservation failed:', rateErr);
+    return json({ error: 'Coaching unavailable, try again in a moment' }, 502, cors);
+  }
+  if (!reserved) {
+    return json({ error: 'Daily coaching limit reached. Try again later.' }, 429, cors);
+  }
 
   const features = buildFeatures(habits, challenges);
 
@@ -303,7 +362,7 @@ Deno.serve(async (req: Request) => {
   } catch (e) {
     // The real cause is logged server-side; the client gets a friendly message.
     console.error('Claude call failed:', e);
-    return json({ error: 'Coaching unavailable, try again in a moment' }, 502);
+    return json({ error: 'Coaching unavailable, try again in a moment' }, 502, cors);
   }
 
   const { data: inserted, error: insErr } = await supabase
@@ -313,8 +372,8 @@ Deno.serve(async (req: Request) => {
     .single();
   if (insErr) {
     console.error('Insert failed:', insErr);
-    return json({ error: 'Could not save insight' }, 500);
+    return json({ error: 'Could not save insight' }, 500, cors);
   }
 
-  return json({ insight: inserted, cached: false });
+  return json({ insight: inserted, cached: false }, 200, cors);
 });

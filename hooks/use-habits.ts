@@ -7,6 +7,19 @@ function newId(): string {
   return randomUUID();
 }
 
+/** Max length for user-authored text (habit names, challenge titles). Mirrors the
+ * char_length CHECK constraints in supabase/schema.sql so a write can never be rejected
+ * by the DB for being too long. */
+const MAX_TEXT_LEN = 200;
+const clampText = (s: string): string => s.slice(0, MAX_TEXT_LEN);
+
+/** Bounds for user-supplied integers, mirroring the CHECK constraints in
+ * supabase/schema.sql so a write can never be rejected by the DB for being out of range. */
+const MAX_TARGET = 1000;
+const MAX_CHALLENGE_DAYS = 3650;
+const clampInt = (n: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, Math.floor(Number.isFinite(n) ? n : min)));
+
 /** A v4 UUID? Used by migration to detect pre-UUID local ids. */
 function isUuid(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -393,7 +406,7 @@ export function addHabit(
   kind: HabitKind = 'check',
   target: number = 1,
 ) {
-  const trimmed = name.trim();
+  const trimmed = clampText(name.trim());
   if (!trimmed) return;
   habits = [
     ...habits,
@@ -402,7 +415,7 @@ export function addHabit(
       name: trimmed,
       emoji: emoji || '✅',
       kind,
-      target: kind === 'count' ? Math.max(1, target) : 1,
+      target: kind === 'count' ? clampInt(target, 1, MAX_TARGET) : 1,
       log: {},
     },
   ];
@@ -426,9 +439,9 @@ export function setHabitReminder(id: string, reminder: HabitReminder | undefined
 export function startChallenge(title: string, lengthDays: number, habitId: string | null = null) {
   const challenge: Challenge = {
     id: newId(),
-    title,
+    title: clampText(title),
     habitId,
-    lengthDays,
+    lengthDays: clampInt(lengthDays, 1, MAX_CHALLENGE_DAYS),
     startDate: toISODate(new Date()),
     progressDates: [],
     status: 'active',

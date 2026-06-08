@@ -204,6 +204,7 @@ export default function TodayScreen() {
               placeholder="Add a habit…"
               placeholderTextColor={muted}
               returnKeyType="done"
+              maxLength={200}
               style={[
                 styles.input,
                 { color: text, backgroundColor: background, borderColor: addError ? danger : border },

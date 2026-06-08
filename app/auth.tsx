@@ -61,6 +61,11 @@ export default function AuthScreen() {
         setError('Emails do not match.');
         return;
       }
+      if (password.length < 8) {
+        // Client-side UX nicety; Supabase Auth enforces the real policy server-side.
+        setError('Password must be at least 8 characters.');
+        return;
+      }
       if (password !== confirmPassword) {
         setError('Passwords do not match.');
         return;

@@ -16,10 +16,10 @@
 create table if not exists public.habits (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users (id) on delete cascade default auth.uid(),
-  name        text not null,
+  name        text not null check (char_length(name) <= 200),
   emoji       text not null default '',
   kind        text not null default 'check' check (kind in ('check', 'count')),
-  target      integer not null default 1 check (target >= 1),
+  target      integer not null default 1 check (target >= 1 and target <= 1000),
   log         jsonb not null default '{}'::jsonb,   -- Record<'YYYY-MM-DD', number>
   reminder    jsonb,                                -- { time, ..., notificationId? } | null
   created_at  timestamptz not null default now(),
@@ -32,9 +32,9 @@ create table if not exists public.habits (
 create table if not exists public.challenges (
   id             uuid primary key default gen_random_uuid(),
   user_id        uuid not null references auth.users (id) on delete cascade default auth.uid(),
-  title          text not null,
+  title          text not null check (char_length(title) <= 200),
   habit_id       uuid references public.habits (id) on delete set null,  -- null = any habit counts
-  length_days    integer not null check (length_days >= 1),
+  length_days    integer not null check (length_days >= 1 and length_days <= 3650),
   start_date     date not null,
   progress_dates jsonb not null default '[]'::jsonb,   -- string[] of 'YYYY-MM-DD'
   status         text not null default 'active' check (status in ('active', 'completed', 'abandoned')),
@@ -99,7 +99,7 @@ create table if not exists public.insights (
   id         uuid primary key default gen_random_uuid(),
   user_id    uuid not null references auth.users (id) on delete cascade default auth.uid(),
   type       text not null check (type in ('nudge', 'weekly', 'monthly')),
-  content    text not null,
+  content    text not null check (char_length(content) <= 4000),
   created_at timestamptz not null default now()
 );
 
@@ -111,3 +111,49 @@ create policy "insights: delete own" on public.insights for delete using ( (sele
 
 create index if not exists insights_user_type_created
   on public.insights (user_id, type, created_at desc);
+
+-- ---------------------------------------------------------------------------
+-- coach_calls — append-only per-user log of *paid* AI generations.
+-- The `coach` edge function counts rows here in a rolling window and refuses to call
+-- Claude once a user exceeds the cap. Intentionally INSERT/SELECT only (NO delete policy)
+-- so a user cannot erase their rate-limit history — unlike `insights`, which they can
+-- delete. This is the tamper-resistant backing store for abuse control.
+-- ---------------------------------------------------------------------------
+create table if not exists public.coach_calls (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users (id) on delete cascade default auth.uid(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.coach_calls enable row level security;
+
+create policy "coach_calls: select own" on public.coach_calls for select using ( (select auth.uid()) = user_id );
+create policy "coach_calls: insert own" on public.coach_calls for insert with check ( (select auth.uid()) = user_id );
+
+create index if not exists coach_calls_user_created
+  on public.coach_calls (user_id, created_at desc);
+
+-- Atomic rate-limit reservation: insert a coach_calls row ONLY IF the caller is still
+-- under the cap within the rolling window, in a single statement (no count-then-insert
+-- race). Returns true if a slot was reserved. SECURITY INVOKER so RLS still scopes it to
+-- the caller. See supabase/migrations/20260608190000_atomic_coach_rate_limit.sql.
+create or replace function public.reserve_coach_call(p_limit integer, p_window_ms bigint)
+returns boolean
+language plpgsql
+security invoker
+as $$
+declare
+  v_since timestamptz := now() - make_interval(secs => p_window_ms / 1000.0);
+  v_inserted integer;
+begin
+  insert into public.coach_calls (user_id)
+  select auth.uid()
+  where (
+    select count(*) from public.coach_calls
+    where user_id = auth.uid() and created_at >= v_since
+  ) < p_limit;
+
+  get diagnostics v_inserted = row_count;
+  return v_inserted > 0;
+end;
+$$;

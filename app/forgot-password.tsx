@@ -64,8 +64,8 @@ export default function ForgotPasswordScreen() {
       setError('Enter the code from your email.');
       return;
     }
-    if (password.length < 6) {
-      setError('New password must be at least 6 characters.');
+    if (password.length < 8) {
+      setError('New password must be at least 8 characters.');
       return;
     }
     setBusy(true);

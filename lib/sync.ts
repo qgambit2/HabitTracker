@@ -200,12 +200,15 @@ async function reconcileDeletes(
     await supabase.from(table).delete().eq('user_id', userId);
     return;
   }
-  // Delete rows whose id is NOT in the kept set. PostgREST `in` list format: (a,b,c).
+  // Delete rows whose id is NOT in the kept set. Quote each id so the PostgREST `in`
+  // list can't be broken out of even if an id ever contained a comma/paren (ids are
+  // UUIDs today, but this keeps the filter safe regardless of the value).
+  const quoted = keepIds.map((id) => `"${id.replace(/"/g, '')}"`).join(',');
   await supabase
     .from(table)
     .delete()
     .eq('user_id', userId)
-    .not('id', 'in', `(${keepIds.join(',')})`);
+    .not('id', 'in', `(${quoted})`);
 }
 
 /** Called by the auth wiring when the signed-in user changes (or signs out). */
