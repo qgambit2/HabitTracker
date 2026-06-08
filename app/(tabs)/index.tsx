@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import {
+  Alert,
+  InputAccessoryView,
+  Keyboard,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, router } from 'expo-router';
 
@@ -13,6 +22,7 @@ import { useThemeColor } from '@/hooks/use-theme-color';
 import {
   addHabit,
   isDayComplete,
+  removeHabit,
   startChallenge,
   tickToday,
   toISODate,
@@ -23,6 +33,14 @@ import {
 } from '@/hooks/use-habits';
 
 const S = { half: 2, one: 4, two: 8, three: 16, four: 24 };
+
+// Curated icons for the add-habit emoji picker. First entry is the default.
+const EMOJI_CHOICES = [
+  '✅', '🏃', '💧', '📖', '🧘', '💪', '🥗', '😴', '🦷', '🧹', '💊', '🎯', '✍️', '🎸',
+];
+
+// iOS number-pad has no return key, so we attach a "Done" accessory bar to dismiss it.
+const TARGET_ACCESSORY_ID = 'targetCountAccessory';
 
 export default function TodayScreen() {
   const habits = useHabits();
@@ -37,6 +55,7 @@ export default function TodayScreen() {
   const [draft, setDraft] = useState('');
   const [kind, setKind] = useState<HabitKind>('check');
   const [target, setTarget] = useState('3');
+  const [emoji, setEmoji] = useState(EMOJI_CHOICES[0]);
   const [burst, setBurst] = useState(0);
   const [addError, setAddError] = useState<string | null>(null);
   const fireReward = useReward();
@@ -66,8 +85,9 @@ export default function TodayScreen() {
       return;
     }
     const n = parseInt(target, 10);
-    addHabit(draft, '✅', kind, kind === 'count' && n > 0 ? n : 1);
+    addHabit(draft, emoji, kind, kind === 'count' && n > 0 ? n : 1);
     setDraft('');
+    setEmoji(EMOJI_CHOICES[0]);
     setAddError(null);
   }
 
@@ -85,6 +105,14 @@ export default function TodayScreen() {
     }
   }
 
+  /** Long-press a habit to delete it, after a confirmation. */
+  function handleDelete(id: string, name: string) {
+    Alert.alert('Delete habit', `Remove "${name}"? This can't be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => removeHabit(id) },
+    ]);
+  }
+
   return (
     <ThemedView style={styles.root}>
       <ScrollView
@@ -93,7 +121,8 @@ export default function TodayScreen() {
           styles.content,
           { paddingTop: insets.top + S.four, paddingBottom: insets.bottom + S.four },
         ]}
-        keyboardShouldPersistTaps="handled">
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag">
         <ThemedView style={styles.container}>
         <ThemedView style={styles.header}>
           <ThemedView style={styles.headerTop}>
@@ -158,6 +187,7 @@ export default function TodayScreen() {
               habit={habit}
               today={today}
               onPress={() => handleTick(habit.id)}
+              onLongPress={() => handleDelete(habit.id, habit.name)}
             />
           ))}
         </ThemedView>
@@ -195,6 +225,25 @@ export default function TodayScreen() {
             <ThemedText style={[styles.addError, { color: danger }]}>{addError}</ThemedText>
           )}
 
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.emojiRow}>
+            {EMOJI_CHOICES.map((choice) => (
+              <Pressable
+                key={choice}
+                onPress={() => setEmoji(choice)}
+                style={({ pressed }) => [
+                  styles.emojiChip,
+                  { backgroundColor: emoji === choice ? tint : cardDone },
+                  pressed && styles.pressed,
+                ]}>
+                <ThemedText style={styles.emojiChoice}>{choice}</ThemedText>
+              </Pressable>
+            ))}
+          </ScrollView>
+
           <ThemedView style={styles.kindRow}>
             <Pressable
               onPress={() => setKind('check')}
@@ -229,6 +278,10 @@ export default function TodayScreen() {
                   onChangeText={setTarget}
                   keyboardType="number-pad"
                   maxLength={3}
+                  returnKeyType="done"
+                  inputAccessoryViewID={
+                    Platform.OS === 'ios' ? TARGET_ACCESSORY_ID : undefined
+                  }
                   style={[styles.targetInput, { color: text, backgroundColor: cardDone }]}
                 />
                 <ThemedText style={{ color: muted }}>/day</ThemedText>
@@ -238,6 +291,17 @@ export default function TodayScreen() {
         </ThemedView>
         </ThemedView>
       </ScrollView>
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID={TARGET_ACCESSORY_ID}>
+          <ThemedView style={[styles.accessoryBar, { backgroundColor: cardDone }]}>
+            <Pressable onPress={() => Keyboard.dismiss()} hitSlop={8}>
+              <ThemedText type="defaultSemiBold" style={{ color: tint }}>
+                Done
+              </ThemedText>
+            </Pressable>
+          </ThemedView>
+        </InputAccessoryView>
+      )}
       <RewardBurst trigger={burst} />
     </ThemedView>
   );
@@ -255,7 +319,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: 'transparent',
   },
-  gear: { fontSize: 24 },
+  gear: { fontSize: 24, lineHeight: 30 },
   list: { gap: S.two, backgroundColor: 'transparent' },
   pressed: { opacity: 0.7 },
   addWrap: { gap: S.two, padding: S.two, borderRadius: S.three },
@@ -283,6 +347,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   chip: { paddingHorizontal: S.three, paddingVertical: S.one, borderRadius: S.three },
+  emojiRow: { gap: S.two, paddingVertical: S.one },
+  emojiChip: {
+    width: 44,
+    height: 44,
+    borderRadius: S.two,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emojiChoice: { fontSize: 24, lineHeight: 30 },
+  accessoryBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: S.three,
+    paddingVertical: S.two,
+  },
   devStart: {
     gap: S.two,
     padding: S.three,

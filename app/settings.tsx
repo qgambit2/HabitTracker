@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { signOut, useAuth } from '@/hooks/use-auth';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import {
   setHabitReminder,
@@ -29,6 +31,7 @@ function formatTime(hour: number, minute: number) {
 export default function SettingsScreen() {
   const habits = useHabits();
   const { soundEnabled } = useSettings();
+  const { session } = useAuth();
   const insets = useSafeAreaInsets();
   const [granted, setGranted] = useState<boolean | null>(null);
 
@@ -36,6 +39,7 @@ export default function SettingsScreen() {
   const muted = useThemeColor({ light: '#60646C', dark: '#B0B4BA' }, 'icon');
   const card = useThemeColor({ light: '#F0F0F3', dark: '#212225' }, 'background');
   const tint = useThemeColor({}, 'tint');
+  const danger = useThemeColor({ light: '#D14343', dark: '#FF6B6B' }, 'text');
 
   useEffect(() => {
     getPermissionGranted().then(setGranted);
@@ -109,6 +113,25 @@ export default function SettingsScreen() {
             Add a habit first to set reminders.
           </ThemedText>
         )}
+      </ThemedView>
+
+      <ThemedView style={styles.section}>
+        <ThemedText type="subtitle">Account</ThemedText>
+        {session?.user?.email && (
+          <ThemedText style={[styles.note, { color: muted }]}>
+            Signed in as {session.user.email}
+          </ThemedText>
+        )}
+        <Pressable
+          onPress={() => signOut()}
+          style={[styles.rowCard, { backgroundColor: card }]}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out">
+          <IconSymbol name="rectangle.portrait.and.arrow.right" size={20} color={danger} />
+          <ThemedText style={[styles.flex, { color: danger }]} type="defaultSemiBold">
+            Sign out
+          </ThemedText>
+        </Pressable>
       </ThemedView>
     </ScrollView>
   );

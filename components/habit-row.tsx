@@ -17,10 +17,11 @@ type Props = {
   habit: Habit;
   today: string;
   onPress: () => void;
+  onLongPress?: () => void;
 };
 
 /** A single habit row on the Today screen — renders check and count kinds. */
-export function HabitRow({ habit, today, onPress }: Props) {
+export function HabitRow({ habit, today, onPress, onLongPress }: Props) {
   const muted = useThemeColor({ light: '#60646C', dark: '#B0B4BA' }, 'icon');
   const card = useThemeColor({ light: '#F0F0F3', dark: '#212225' }, 'background');
   const cardDone = useThemeColor({ light: '#E0E1E6', dark: '#2E3135' }, 'background');
@@ -34,7 +35,10 @@ export function HabitRow({ habit, today, onPress }: Props) {
   const ratio = Math.min(progress / habit.target, 1);
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={({ pressed }) => pressed && styles.pressed}>
       <ThemedView style={[styles.row, { backgroundColor: done ? cardDone : card }]}>
         <ThemedText style={styles.emoji}>{habit.emoji}</ThemedText>
         <ThemedView style={styles.rowText}>
@@ -71,10 +75,10 @@ const styles = StyleSheet.create({
     padding: S.three,
     borderRadius: S.three,
   },
-  emoji: { fontSize: 28 },
+  emoji: { fontSize: 28, lineHeight: 34 },
   rowText: { flex: 1, gap: S.half, backgroundColor: 'transparent' },
   small: { fontSize: 14, lineHeight: 20 },
-  check: { fontSize: 24 },
+  check: { fontSize: 24, lineHeight: 30 },
   count: { fontSize: 18, minWidth: 48, textAlign: 'right' },
   track: { height: 6, borderRadius: 3, overflow: 'hidden', marginTop: S.half },
   fill: { height: '100%', borderRadius: 3 },

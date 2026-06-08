@@ -21,6 +21,9 @@ const MAPPING = {
   'checkmark.circle.fill': 'check-circle',
   'chart.bar.fill': 'bar-chart',
   'clock.fill': 'history',
+  'eye': 'visibility',
+  'eye.slash': 'visibility-off',
+  'rectangle.portrait.and.arrow.right': 'logout',
 } as IconMapping;
 
 /**
