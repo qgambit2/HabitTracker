@@ -3,5 +3,11 @@
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
-  }
+  },
+  // The RN/Expo app uses the normal TS server (deno.enable false). Only the Supabase
+  // edge functions run on Deno, so scope the Deno language server to that folder — it
+  // knows Deno.serve / Deno.env and jsr: imports, clearing the false errors in
+  // supabase/functions/coach/index.ts (which tsconfig.json already excludes from the app).
+  "deno.enable": false,
+  "deno.enablePaths": ["supabase/functions"]
 }
