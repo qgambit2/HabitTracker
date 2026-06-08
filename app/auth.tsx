@@ -165,6 +165,10 @@ export default function AuthScreen() {
           )}
         </Pressable>
 
+        {/* Forgot-password is built (app/forgot-password.tsx) but hidden until custom SMTP
+            is configured — the OTP flow needs the reset email to deliver a {{ .Token }}
+            code, which requires a custom SMTP provider. Re-enable this link then. */}
+
         <Pressable onPress={() => switchMode(isSignup ? 'signin' : 'signup')} style={styles.switch}>
           <ThemedText style={[styles.switchLabel, { color: tint }]}>
             {isSignup

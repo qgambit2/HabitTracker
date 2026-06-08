@@ -103,3 +103,30 @@ export async function signOut(): Promise<AuthResult> {
   const { error } = await supabase.auth.signOut();
   return { error: error?.message ?? null };
 }
+
+// --- Password reset via OTP code (Expo Go-friendly; no deep link needed) -----
+// Flow: request a recovery code by email -> verify the code -> set a new password.
+
+export async function requestPasswordReset(email: string): Promise<AuthResult> {
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+  return { error: error?.message ?? null };
+}
+
+/** Verify the emailed recovery code. On success this establishes a recovery session. */
+export async function verifyPasswordResetCode(
+  email: string,
+  token: string
+): Promise<AuthResult> {
+  const { error } = await supabase.auth.verifyOtp({
+    email: email.trim(),
+    token: token.trim(),
+    type: 'recovery',
+  });
+  return { error: error?.message ?? null };
+}
+
+/** Set the new password (call only after verifyPasswordResetCode succeeds). */
+export async function setNewPassword(password: string): Promise<AuthResult> {
+  const { error } = await supabase.auth.updateUser({ password });
+  return { error: error?.message ?? null };
+}

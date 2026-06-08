@@ -34,10 +34,12 @@ function useAuthGate() {
 
   useEffect(() => {
     if (loading) return;
-    const onAuthScreen = segments[0] === 'auth';
-    if (!session && !onAuthScreen) {
+    // Screens an unauthenticated user is allowed to be on.
+    const publicScreens = ['auth', 'forgot-password'];
+    const onPublicScreen = publicScreens.includes(segments[0] as string);
+    if (!session && !onPublicScreen) {
       router.replace('/auth');
-    } else if (session && onAuthScreen) {
+    } else if (session && onPublicScreen) {
       router.replace('/');
     }
   }, [session, loading, segments, router]);
@@ -65,6 +67,7 @@ export default function RootLayout() {
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
+        <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Celebration' }} />
         <Stack.Screen
           name="onboarding"
