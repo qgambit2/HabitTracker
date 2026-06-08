@@ -155,29 +155,57 @@ export function schedulePush(): void {
   }, 500);
 }
 
-/** Immediate full upsert of habits/challenges/settings for the user. */
+/**
+ * Immediate full sync of habits/challenges/settings for the user: upsert everything that
+ * exists locally, then delete any cloud rows that no longer exist locally (so deleting a
+ * habit/challenge in the app removes it from the cloud too — no resurrection on next pull).
+ * Supabase query builders are thenables, so they can be awaited directly.
+ */
 export async function pushNow(userId: string): Promise<void> {
   const { habits, challenges, settings } = getAllState();
 
-  // Upsert all rows. (Deletions aren't reconciled in v1 full-state sync; see note.)
-  // Supabase query builders are thenables, so await them via Promise.all directly.
-  const ops: PromiseLike<unknown>[] = [];
+  // 1. Upsert current rows.
+  const upserts: PromiseLike<unknown>[] = [];
   if (habits.length > 0) {
-    ops.push(supabase.from('habits').upsert(habits.map((h) => habitToRow(h, userId))));
+    upserts.push(supabase.from('habits').upsert(habits.map((h) => habitToRow(h, userId))));
   }
   if (challenges.length > 0) {
-    ops.push(
+    upserts.push(
       supabase.from('challenges').upsert(challenges.map((c) => challengeToRow(c, userId)))
     );
   }
-  ops.push(
+  upserts.push(
     supabase.from('settings').upsert({
       user_id: userId,
       sound_enabled: settings.soundEnabled,
       onboarded: settings.onboarded,
     })
   );
-  await Promise.all(ops);
+  await Promise.all(upserts);
+
+  // 2. Reconcile deletions: remove cloud rows for this user that aren't in the local set.
+  //    (RLS already scopes to the user; the explicit user_id filter is belt-and-suspenders.)
+  await reconcileDeletes('habits', habits.map((h) => h.id), userId);
+  await reconcileDeletes('challenges', challenges.map((c) => c.id), userId);
+}
+
+/** Delete rows of `table` for `userId` whose id is not in `keepIds`. */
+async function reconcileDeletes(
+  table: 'habits' | 'challenges',
+  keepIds: string[],
+  userId: string
+): Promise<void> {
+  if (keepIds.length === 0) {
+    // Nothing kept locally — delete all of the user's rows in this table.
+    await supabase.from(table).delete().eq('user_id', userId);
+    return;
+  }
+  // Delete rows whose id is NOT in the kept set. PostgREST `in` list format: (a,b,c).
+  await supabase
+    .from(table)
+    .delete()
+    .eq('user_id', userId)
+    .not('id', 'in', `(${keepIds.join(',')})`);
 }
 
 /** Called by the auth wiring when the signed-in user changes (or signs out). */
