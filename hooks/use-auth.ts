@@ -1,7 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
 
-import { setSyncListener } from '@/hooks/use-habits';
+import { resetLocalState, setSyncListener } from '@/hooks/use-habits';
 import { supabase } from '@/lib/supabase';
 import { pullOnLogin, schedulePush, setSyncUser } from '@/lib/sync';
 
@@ -40,20 +40,33 @@ function getSnapshot() {
 // Connect or disconnect cloud sync as the signed-in user changes. Tracks the last
 // user id so we only pull once per login (onAuthStateChange can fire repeatedly, e.g.
 // on TOKEN_REFRESHED, and we don't want to re-pull/overwrite local on every refresh).
-let lastSyncedUserId: string | null = null;
+//
+// `undefined` means "we haven't attached to any user yet this app run" — distinct from
+// `null` ("explicitly signed out"). This lets the very first attach preserve local state
+// (so pre-auth habits seed into a fresh account), while any *switch* between users wipes
+// local first so a new user never inherits the previous user's habits.
+let lastSyncedUserId: string | null | undefined = undefined;
 
 function reconcileSync(session: Session | null) {
   const userId = session?.user?.id ?? null;
   if (userId === lastSyncedUserId) return;
+
+  const isFirstAttach = lastSyncedUserId === undefined;
+  const switchingUsers = !isFirstAttach && lastSyncedUserId !== userId;
   lastSyncedUserId = userId;
 
   if (userId) {
+    // Clear the previous user's data before loading this one (unless this is the first
+    // attach, where local may hold pre-auth habits we want to seed into the account).
+    if (switchingUsers) resetLocalState();
     setSyncUser(userId);
     setSyncListener(schedulePush);
     void pullOnLogin(userId);
   } else {
+    // Signed out: stop syncing and wipe local so the next user starts clean.
     setSyncListener(null);
     setSyncUser(null);
+    resetLocalState();
   }
 }
 

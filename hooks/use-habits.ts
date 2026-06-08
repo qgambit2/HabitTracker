@@ -173,6 +173,19 @@ export function getAllState(): { habits: Habit[]; challenges: Challenge[]; setti
 }
 
 /**
+ * Wipe all local state to a clean empty slate. Called on sign-out / account switch so a
+ * new user never inherits the previous user's habits (the local store is per-device, not
+ * per-user, so it MUST be cleared when the user changes). Does not trigger a cloud push.
+ */
+export function resetLocalState() {
+  habits = [];
+  challenges = [];
+  settings = { soundEnabled: true, onboarded: false };
+  listeners.forEach((l) => l());
+  if (didHydrate) schedulePersist();
+}
+
+/**
  * Replace all state from a cloud pull. Updates the store and persists locally, but does
  * NOT trigger the sync push-back (we just received this from the cloud). Pass the same
  * shape getAllState returns.
