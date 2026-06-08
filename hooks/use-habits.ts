@@ -1,5 +1,16 @@
 import { useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { randomUUID } from 'expo-crypto';
+
+/** Stable, cloud-compatible id. Matches the Supabase uuid columns so id == cloud id. */
+function newId(): string {
+  return randomUUID();
+}
+
+/** A v4 UUID? Used by migration to detect pre-UUID local ids. */
+function isUuid(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
 
 /**
  * The shared habit store, exposed across screens via useSyncExternalStore.
@@ -57,7 +68,7 @@ type PersistedState = {
   settings: Settings;
 };
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const STORAGE_KEY = '@habits/state';
 
 // ---------------------------------------------------------------------------
@@ -121,9 +132,9 @@ export function todayProgress(habit: Habit): number {
 // ---------------------------------------------------------------------------
 
 let habits: Habit[] = [
-  { id: 'h1', name: 'Drink water', emoji: '💧', kind: 'count', target: 8, log: {} },
-  { id: 'h2', name: 'Read 10 pages', emoji: '📖', kind: 'check', target: 1, log: {} },
-  { id: 'h3', name: 'Exercise', emoji: '🏃', kind: 'check', target: 1, log: {} },
+  { id: newId(), name: 'Drink water', emoji: '💧', kind: 'count', target: 8, log: {} },
+  { id: newId(), name: 'Read 10 pages', emoji: '📖', kind: 'check', target: 1, log: {} },
+  { id: newId(), name: 'Exercise', emoji: '🏃', kind: 'check', target: 1, log: {} },
 ];
 
 let challenges: Challenge[] = [];
@@ -134,10 +145,48 @@ let didHydrate = false;
 
 const listeners = new Set<() => void>();
 
+// Optional cloud-sync hook. lib/sync registers a callback here so every local
+// change can be pushed to Supabase, without use-habits importing lib/sync (avoids a
+// circular import). When no user is signed in, nothing is registered and emit() is
+// local-only, exactly as before.
+let onChange: (() => void) | null = null;
+
+/** Register (or clear, with null) the cloud-sync change callback. */
+export function setSyncListener(cb: (() => void) | null) {
+  onChange = cb;
+}
+
 function emit() {
   // Reassign for fresh references so useSyncExternalStore re-renders.
   habits = [...habits];
   challenges = [...challenges];
+  listeners.forEach((l) => l());
+  if (didHydrate) schedulePersist();
+  // Notify cloud sync after local persist is scheduled. Guarded by didHydrate so the
+  // initial seed/hydrate doesn't trigger a spurious push.
+  if (didHydrate && onChange) onChange();
+}
+
+/** Snapshot of all persisted state — used by cloud sync to push the full set. */
+export function getAllState(): { habits: Habit[]; challenges: Challenge[]; settings: Settings } {
+  return { habits, challenges, settings };
+}
+
+/**
+ * Replace all state from a cloud pull. Updates the store and persists locally, but does
+ * NOT trigger the sync push-back (we just received this from the cloud). Pass the same
+ * shape getAllState returns.
+ */
+export function applyCloudState(next: {
+  habits: Habit[];
+  challenges: Challenge[];
+  settings: Settings;
+}) {
+  settings = next.settings;
+  // Reassign arrays for fresh references, then notify the shared listener set (all
+  // three stores subscribe to it). Skip onChange to avoid a push-back loop.
+  habits = [...next.habits];
+  challenges = [...next.challenges];
   listeners.forEach((l) => l());
   if (didHydrate) schedulePersist();
 }
@@ -194,10 +243,33 @@ function migrate(raw: unknown): PersistedState | null {
       })
     : habits;
 
+  let challengesMig: Challenge[] = Array.isArray(data.challenges)
+    ? (data.challenges as Challenge[])
+    : [];
+
+  // v3: ids must be UUIDs to match the Supabase uuid columns. Rewrite any legacy
+  // string ids ('h1', 'c1718…') to UUIDs, remapping challenge.habitId references so
+  // they keep pointing at the same habit after the id changes.
+  if (version < 3) {
+    const idMap = new Map<string, string>();
+    for (const h of migratedHabits) {
+      if (!isUuid(h.id)) {
+        const fresh = newId();
+        idMap.set(h.id, fresh);
+        h.id = fresh;
+      }
+    }
+    challengesMig = challengesMig.map((c) => ({
+      ...c,
+      id: isUuid(c.id) ? c.id : newId(),
+      habitId: c.habitId && idMap.has(c.habitId) ? idMap.get(c.habitId)! : c.habitId,
+    }));
+  }
+
   return {
     schemaVersion: SCHEMA_VERSION,
     habits: migratedHabits,
-    challenges: Array.isArray(data.challenges) ? (data.challenges as Challenge[]) : [],
+    challenges: challengesMig,
     settings: {
       soundEnabled: (data.settings as Settings)?.soundEnabled ?? true,
       onboarded: (data.settings as Settings)?.onboarded ?? version > 1,
@@ -224,7 +296,12 @@ async function hydrate() {
   }
 }
 
-hydrate();
+// Expose hydration completion so cloud sync can wait for local state to load before
+// pulling — otherwise pull and hydrate race at module load and can clobber each other.
+const hydration = hydrate();
+export function whenHydrated(): Promise<void> {
+  return hydration;
+}
 
 const store = {
   subscribe(listener: () => void) {
@@ -308,7 +385,7 @@ export function addHabit(
   habits = [
     ...habits,
     {
-      id: `h${Date.now()}`,
+      id: newId(),
       name: trimmed,
       emoji: emoji || '✅',
       kind,
@@ -335,7 +412,7 @@ export function setHabitReminder(id: string, reminder: HabitReminder | undefined
 
 export function startChallenge(title: string, lengthDays: number, habitId: string | null = null) {
   const challenge: Challenge = {
-    id: `c${Date.now()}`,
+    id: newId(),
     title,
     habitId,
     lengthDays,
